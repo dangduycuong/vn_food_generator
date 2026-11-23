@@ -346,7 +346,7 @@ class _GitHubFoodManagerPageState extends State<GitHubFoodManagerPage> {
           () => _statusLog = '⏳ Đang tải ảnh $imageFileName lên GitHub...',
         );
         final imageApiUrl = Uri.https(
-          'github.com',
+          _apiHost,
           '/repos/$_owner/$_repo/contents/images/$imageFileName',
         );
         String? existingSha;
