@@ -27,7 +27,7 @@ class _FoodManagerPageState extends State<FoodManagerPage> {
   final _ingredientsController = TextEditingController();
   final _instructionsController = TextEditingController();
 
-  String _selectedCategory = 'Món Nước';
+  final _categoryController = TextEditingController(text: 'Món Nước');
   Uint8List? _selectedImageBytes;
   String? _selectedImageExt;
 
@@ -169,9 +169,7 @@ class _FoodManagerPageState extends State<FoodManagerPage> {
       _nameController.text = item.name;
       _areaController.text = item.area;
       _thumbNameController.text = item.thumb;
-      _selectedCategory = _categories.contains(item.category)
-          ? item.category
-          : _categories.first;
+      _categoryController.text = item.category;
       _ingredientsController.text = item.ingredients.join('\n');
       _instructionsController.text = item.instructions;
       _selectedImageBytes = null;
@@ -190,6 +188,7 @@ class _FoodManagerPageState extends State<FoodManagerPage> {
       _instructionsController.clear();
       _selectedImageBytes = null;
       _statusLog = '➕ Chế độ Thêm món mới.';
+      _categoryController.text = 'Món Nước';
     });
   }
 
@@ -267,7 +266,9 @@ class _FoodManagerPageState extends State<FoodManagerPage> {
       final draft = FoodItem(
         id: _editingId ?? '',
         name: _nameController.text.trim(),
-        category: _selectedCategory,
+        category: _categoryController.text.trim().isEmpty
+            ? 'Món Khô'
+            : _categoryController.text.trim(),
         area: _areaController.text.trim(),
         thumb: _thumbNameController.text.trim(),
         ingredients: ingredients,
@@ -545,20 +546,94 @@ class _FoodManagerPageState extends State<FoodManagerPage> {
                       ),
                       const SizedBox(width: 10),
                       Expanded(
-                        child: DropdownButtonFormField(
-                          initialValue: _selectedCategory,
-                          decoration: const InputDecoration(
-                            labelText: 'Danh mục',
-                            border: OutlineInputBorder(),
-                          ),
-                          items: _categories
-                              .map(
-                                (c) =>
-                                    DropdownMenuItem(value: c, child: Text(c)),
-                              )
-                              .toList(),
-                          onChanged: (val) =>
-                              setState(() => _selectedCategory = val!),
+                        child: LayoutBuilder(
+                          builder: (context, constraints) {
+                            // Tự động gộp danh mục mặc định và danh mục đã có trên GitHub
+                            final allCategories = {
+                              ..._categories,
+                              ..._existingItems
+                                  .map((e) => e.category)
+                                  .where((c) => c.isNotEmpty),
+                            }.toList();
+
+                            return Autocomplete<String>(
+                              optionsBuilder: (TextEditingValue textValue) {
+                                if (textValue.text.isEmpty)
+                                  return allCategories;
+                                return allCategories.where(
+                                  (option) => option.toLowerCase().contains(
+                                    textValue.text.toLowerCase(),
+                                  ),
+                                );
+                              },
+                              onSelected: (String selection) {
+                                _categoryController.text = selection;
+                              },
+                              fieldViewBuilder:
+                                  (
+                                    context,
+                                    textEditingController,
+                                    focusNode,
+                                    onFieldSubmitted,
+                                  ) {
+                                    // Đồng bộ giá trị ban đầu khi bấm Sửa hoặc Reset
+                                    if (textEditingController.text !=
+                                        _categoryController.text) {
+                                      textEditingController.text =
+                                          _categoryController.text;
+                                    }
+                                    return TextField(
+                                      controller: textEditingController,
+                                      focusNode: focusNode,
+                                      decoration: InputDecoration(
+                                        labelText: 'Danh mục (chọn hoặc tự gõ)',
+                                        border: const OutlineInputBorder(),
+                                        suffixIcon: IconButton(
+                                          icon: const Icon(
+                                            Icons.arrow_drop_down,
+                                          ),
+                                          tooltip: 'Xem tất cả danh mục',
+                                          onPressed: () {
+                                            textEditingController.clear();
+                                            _categoryController.clear();
+                                            focusNode.requestFocus();
+                                          },
+                                        ),
+                                      ),
+                                      onChanged: (val) =>
+                                          _categoryController.text = val,
+                                    );
+                                  },
+                              optionsViewBuilder:
+                                  (context, onSelected, options) {
+                                    return Align(
+                                      alignment: Alignment.topLeft,
+                                      child: Material(
+                                        elevation: 4,
+                                        borderRadius: BorderRadius.circular(8),
+                                        child: SizedBox(
+                                          width: constraints.maxWidth,
+                                          child: ListView.builder(
+                                            padding: EdgeInsets.zero,
+                                            shrinkWrap: true,
+                                            itemCount: options.length,
+                                            itemBuilder: (context, index) {
+                                              final option = options.elementAt(
+                                                index,
+                                              );
+                                              return ListTile(
+                                                dense: true,
+                                                title: Text(option),
+                                                onTap: () => onSelected(option),
+                                              );
+                                            },
+                                          ),
+                                        ),
+                                      ),
+                                    );
+                                  },
+                            );
+                          },
                         ),
                       ),
                     ],

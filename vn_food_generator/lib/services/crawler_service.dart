@@ -45,17 +45,20 @@ class CrawlerService {
     // 1. Tách tên món từ thẻ H1
     final h1Text = document.querySelector('h1')?.text.trim() ?? '';
     final cleanName = h1Text
-        .replaceFirst(RegExp(r'^Cách Làm\s+', caseSensitive: false), '')
+        .replaceFirst(
+          RegExp(r'^Cách Làm\s+(món\s+)?', caseSensitive: false),
+          '',
+        )
         .split(
           RegExp(
-            r'\s+(Giòn|Ngon|Đậm|Chuẩn|Đơn Giản|Tại Nhà)',
+            r'[,|\-]|\s+(Giòn|Ngon|Đậm|Chuẩn|Đơn Giản|Tại Nhà|Siêu|Trắng)',
             caseSensitive: false,
           ),
         )
         .first
         .trim();
 
-    // 2. Săn tìm URL ảnh đại diện (Meta tags + Ảnh trong thân bài)
+    // 2. Săn tìm URL ảnh đại diện
     String? foundImgUrl =
         document
             .querySelector('meta[property="og:image"]')
@@ -101,12 +104,18 @@ class CrawlerService {
       }
     }
 
-    // 4. Quét Nguyên liệu & Cách làm
+    // 4. Quét Nguyên liệu & Cách làm (Bao phủ mọi biến thể tiêu đề)
     final List<String> ingredients = [];
     final List<String> instructions = [];
     String section = '';
+    int stepCounter = 0;
 
     if (contentNode != null) {
+      // Xóa hộp Mục Lục (TOC) trước khi duyệt
+      contentNode
+          .querySelectorAll('#ez-toc-container, .ez-toc-v2_0_69, .toc_widget')
+          .forEach((e) => e.remove());
+
       for (final el in contentNode.querySelectorAll('h2, h3, h4, li, p')) {
         final tag = el.localName ?? '';
         final text = el.text.replaceAll(RegExp(r'\s+'), ' ').trim();
@@ -114,32 +123,67 @@ class CrawlerService {
 
         if (tag == 'h2' || tag == 'h3' || tag == 'h4') {
           final lower = text.toLowerCase();
-          if (lower.contains('nguyên liệu')) {
+
+          // Mốc Nguyên liệu
+          if (lower.contains('nguyên liệu') && !lower.contains('sơ chế')) {
             section = 'ingredients';
             continue;
-          } else if (lower.contains('cách làm') ||
+          }
+
+          // Mốc Cách làm (bổ sung thêm từ khóa "hướng dẫn")
+          if (lower.contains('cách làm') ||
+              lower.contains('các bước') ||
               lower.contains('cách nấu') ||
-              lower.contains('chế biến')) {
-            section = 'instructions';
-            continue;
-          } else if (lower.startsWith('bước ') && section == 'instructions') {
-            instructions.add('\n$text:');
-            continue;
-          } else if (tag == 'h2' &&
+              lower.contains('chế biến') ||
+              lower.contains('thực hiện') ||
+              lower.contains('hướng dẫn')) {
+            if (tag != 'h2' || !lower.contains(cleanName.toLowerCase())) {
+              section = 'instructions';
+              continue;
+            }
+          }
+
+          // Mốc dừng khi sang phần mẹo/lưu ý cuối bài
+          if ((tag == 'h2' || tag == 'h3') &&
               (lower.contains('bí quyết') ||
-                  lower.contains('thưởng thức') ||
+                  (lower.contains('thưởng thức') &&
+                      !lower.contains('trình bày')) ||
                   lower.contains('biến tấu') ||
-                  lower.contains('lỗi thường gặp'))) {
-            break;
+                  lower.contains('lỗi thường gặp') ||
+                  lower.contains('mẹo') ||
+                  lower.contains('lưu ý'))) {
+            if (section == 'instructions') break;
+          }
+
+          // Tiêu đề bước con trong H3/H4
+          if (section == 'instructions' && (tag == 'h3' || tag == 'h4')) {
+            stepCounter++;
+            final stepTitle =
+                RegExp(r'^bước\s*\d+', caseSensitive: false).hasMatch(text)
+                ? text
+                : 'Bước $stepCounter: $text';
+            instructions.add('\n$stepTitle');
+            continue;
           }
         }
 
+        // Cơ chế dự phòng thông minh: Nếu đang ở phần nguyên liệu mà gặp đoạn văn bắt đầu bằng "Bước 1:" thì tự động chuyển sang Cách làm
+        if (section == 'ingredients' &&
+            tag == 'p' &&
+            RegExp(r'^bước\s*1\b', caseSensitive: false).hasMatch(text)) {
+          section = 'instructions';
+        }
+
+        // Thu thập dữ liệu
         if (section == 'ingredients' && tag == 'li') {
           if (!RegExp(r'^\d+\.\s').hasMatch(text)) {
             ingredients.add(text);
           }
         } else if (section == 'instructions' && (tag == 'p' || tag == 'li')) {
-          if (!text.contains('Ảnh:') && !text.startsWith('Xem thêm')) {
+          if (!text.contains('Ảnh:') &&
+              !text.startsWith('Xem thêm') &&
+              !text.startsWith('XEM NGAY') &&
+              !text.startsWith('Chúc bạn thực hiện thành công')) {
             instructions.add(text);
           }
         }
